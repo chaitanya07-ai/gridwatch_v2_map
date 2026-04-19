@@ -4,6 +4,7 @@ Main Flask Application with WebSocket Support
 """
  
 import threading, time, statistics, logging
+import os
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
  
@@ -214,4 +215,4 @@ if __name__ == '__main__':
     logger.info("  GRIDWATCH → http://localhost:5050")
     logger.info("  /map  /transformers  /meters")
     logger.info("=" * 52)
-    socketio.run(app, host='0.0.0.0', port=5050, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
