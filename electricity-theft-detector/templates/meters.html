@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% set active = "meters" %}
+{% block title %}Smart Meters{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.meter-row td { vertical-align: middle; }
+.sparkline-cell { width: 120px; }
+.load-bar-wrap { width: 100px; background: var(--surface2); border-radius: 2px; height: 6px; overflow:hidden; }
+.load-bar { height: 100%; border-radius: 2px; transition: width 0.6s; }
+.tf-section { margin-bottom: 32px; }
+.tf-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 8px 8px 0 0;
+  border-bottom: none;
+}
+.tf-table-wrap {
+  border: 1px solid var(--border); border-radius: 0 0 8px 8px; overflow: hidden;
+}
+.summary-strip {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 28px;
+}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Smart Meters</h1>
+<div class="page-sub">Live household consumption · updated every 3 seconds</div>
+
+<div class="summary-strip" id="summary-strip">
+  <div class="card">
+    <div class="card-title">Total Households</div>
+    <div class="stat-num" id="stat-hh">—</div>
+    <div class="stat-label">Monitored Units</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Total Consumption</div>
+    <div class="stat-num" id="stat-total">—<span class="stat-unit">kWh</span></div>
+    <div class="stat-label">Aggregate Load</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Peak Household</div>
+    <div class="stat-num" id="stat-peak">—<span class="stat-unit">kWh</span></div>
+    <div class="stat-label">Highest Consumer</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Avg per Household</div>
+    <div class="stat-num" id="stat-avg">—<span class="stat-unit">kWh</span></div>
+    <div class="stat-label">Mean Load</div>
+  </div>
+</div>
+
+<div id="tf-sections"></div>
+
+<script>
+const sparkCharts = {};
+
+function statusColor(pct) {
+  if (pct < 5)  return 'var(--green)';
+  if (pct < 15) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function statusClass(pct) {
+  if (pct < 5)  return 'badge-normal';
+  if (pct < 15) return 'badge-warning';
+  return 'badge-critical';
+}
+
+function buildSparkline(canvasId, data) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const max = Math.max(...data);
+  const gradient = ctx.createLinearGradient(0, 0, 0, 40);
+  gradient.addColorStop(0, 'rgba(0,229,160,0.4)');
+  gradient.addColorStop(1, 'rgba(0,229,160,0)');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map((_,i) => i),
+      datasets: [{
+        data,
+        borderColor: 'rgba(0,229,160,0.9)',
+        backgroundColor: gradient,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false }},
+      scales: {
+        x: { display: false },
+        y: { display: false, min: 0, max: max * 1.2 }
+      }
+    }
+  });
+}
+
+function renderTFSections(data) {
+  const { households, transformers, total_consumption } = data;
+
+  // Summary
+  const loads = households.map(h => h.current_load);
+  document.getElementById('stat-hh').textContent = households.length;
+  document.getElementById('stat-total').innerHTML = `${total_consumption}<span class="stat-unit">kWh</span>`;
+  document.getElementById('stat-peak').innerHTML = `${Math.max(...loads).toFixed(2)}<span class="stat-unit">kWh</span>`;
+  document.getElementById('stat-avg').innerHTML = `${(loads.reduce((a,b)=>a+b,0)/loads.length).toFixed(2)}<span class="stat-unit">kWh</span>`;
+
+  const container = document.getElementById('tf-sections');
+  const hhByTf = {};
+  households.forEach(h => {
+    if (!hhByTf[h.transformer_id]) hhByTf[h.transformer_id] = [];
+    hhByTf[h.transformer_id].push(h);
+  });
+
+  transformers.forEach(tf => {
+    const hhs = hhByTf[tf.id] || [];
+    let section = document.getElementById('sec-' + tf.id);
+    if (!section) {
+      section = document.createElement('div');
+      section.id = 'sec-' + tf.id;
+      section.className = 'tf-section';
+      container.appendChild(section);
+    }
+
+    const tfColor = statusColor(tf.diff_pct);
+    const tfClass = statusClass(tf.diff_pct);
+
+    let rows = '';
+    hhs.forEach(hh => {
+      const barWidth = Math.min(100, (hh.current_load / 10) * 100);
+      const cid = 'spark-' + hh.id.replace(/[^a-zA-Z0-9]/g,'_');
+      rows += `<tr class="meter-row" id="row-${hh.id.replace(/[^a-zA-Z0-9]/g,'_')}">
+        <td style="color:var(--muted)">${hh.id}</td>
+        <td>${hh.name}</td>
+        <td style="color:var(--white);font-weight:700">${hh.current_load.toFixed(2)} <span style="color:var(--muted);font-size:0.65rem">kWh</span></td>
+        <td>
+          <div class="load-bar-wrap">
+            <div class="load-bar" style="width:${barWidth}%;background:${barWidth>80?'var(--red)':barWidth>60?'var(--yellow)':'var(--green)'}"></div>
+          </div>
+        </td>
+        <td class="sparkline-cell"><canvas id="${cid}" width="120" height="36"></canvas></td>
+      </tr>`;
+    });
+
+    section.innerHTML = `
+      <div class="tf-header">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="font-family:var(--font-mono);font-size:0.8rem;color:var(--white);font-weight:700">${tf.name}</span>
+          <span style="font-family:var(--font-mono);font-size:0.65rem;color:var(--muted)">${tf.id}</span>
+          <span class="badge ${tfClass}">${tf.status}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:20px">
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--muted)">HH SUM</div>
+            <div style="font-family:var(--font-mono);font-size:0.9rem;color:var(--white)">${tf.hh_sum} kWh</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--muted)">LOSS/ANOMALY</div>
+            <div style="font-family:var(--font-mono);font-size:1.1rem;font-weight:700;color:${tfColor}">${tf.diff_pct}%</div>
+          </div>
+          <button class="btn ${tf.anomaly_injected?'btn-danger':'btn-warning'}" id="anom-btn-${tf.id}"
+            onclick="toggleAnomaly('${tf.id}',this)">
+            ⚡ ${tf.anomaly_injected?'THEFT ACTIVE':'Inject Anomaly'}
+          </button>
+        </div>
+      </div>
+      <div class="tf-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Household</th><th>Current Load</th><th>Usage</th><th>24h Trend</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-${tf.id.replace(/-/g,'')}">${rows}</tbody>
+        </table>
+      </div>`;
+
+    // Draw sparklines after render
+    setTimeout(() => {
+      hhs.forEach(hh => {
+        const cid = 'spark-' + hh.id.replace(/[^a-zA-Z0-9]/g,'_');
+        const canvas = document.getElementById(cid);
+        if (!canvas) return;
+        if (sparkCharts[hh.id]) {
+          sparkCharts[hh.id].data.datasets[0].data = hh.history;
+          sparkCharts[hh.id].update('none');
+        } else {
+          sparkCharts[hh.id] = buildSparkline(cid, hh.history);
+        }
+      });
+    }, 0);
+  });
+}
+
+window.onDataUpdate = renderTFSections;
+</script>
+{% endblock %}

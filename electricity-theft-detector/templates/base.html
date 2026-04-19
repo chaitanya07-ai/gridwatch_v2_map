@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GridWatch — {% block title %}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#070b14; --surface:#0d1525; --surface2:#131e33; --border:#1e3050;
+    --green:#00e5a0; --yellow:#f5c518; --red:#ff3b5c; --blue:#3b8bff;
+    --text:#c8d8f0; --muted:#4a6080; --white:#e8f0ff;
+    --font-mono:'Space Mono',monospace; --font-sans:'Syne',sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:14px}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-sans);min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:9999}
+  nav{display:flex;align-items:center;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border);height:56px;position:sticky;top:0;z-index:100}
+  .nav-logo{font-family:var(--font-sans);font-weight:800;font-size:1.1rem;color:var(--green);letter-spacing:.1em;text-transform:uppercase;margin-right:32px;text-decoration:none;display:flex;align-items:center;gap:8px}
+  .nav-logo svg{width:22px;height:22px}
+  .nav-links{display:flex;gap:4px}
+  .nav-link{font-family:var(--font-mono);font-size:.72rem;color:var(--muted);text-decoration:none;padding:6px 14px;border-radius:4px;letter-spacing:.05em;transition:all .15s}
+  .nav-link:hover{color:var(--text);background:var(--surface2)}
+  .nav-link.active{color:var(--green);background:rgba(0,229,160,.08)}
+  .nav-spacer{flex:1}
+  .nav-status{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:.68rem;color:var(--muted)}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+  main{padding:28px 28px 48px;max-width:1600px;margin:0 auto}
+  h1{font-family:var(--font-sans);font-weight:800;font-size:1.6rem;color:var(--white);letter-spacing:-.02em;margin-bottom:4px}
+  .page-sub{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:28px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);opacity:.4}
+  .card-title{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:14px}
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:3px;font-family:var(--font-mono);font-size:.65rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .badge-normal{background:rgba(0,229,160,.12);color:var(--green)}
+  .badge-warning{background:rgba(245,197,24,.12);color:var(--yellow)}
+  .badge-critical{background:rgba(255,59,92,.12);color:var(--red)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:5px;border:none;cursor:pointer;font-family:var(--font-mono);font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;transition:all .15s;text-decoration:none}
+  .btn-primary{background:rgba(0,229,160,.1);color:var(--green);border:1px solid rgba(0,229,160,.3)}
+  .btn-primary:hover{background:rgba(0,229,160,.2)}
+  .btn-danger{background:rgba(255,59,92,.1);color:var(--red);border:1px solid rgba(255,59,92,.3)}
+  .btn-danger:hover{background:rgba(255,59,92,.2)}
+  .btn-warning{background:rgba(245,197,24,.1);color:var(--yellow);border:1px solid rgba(245,197,24,.3)}
+  .btn-warning:hover{background:rgba(245,197,24,.2)}
+  .stat-num{font-family:var(--font-mono);font-size:2.2rem;font-weight:700;color:var(--white);line-height:1}
+  .stat-unit{font-size:.9rem;color:var(--muted);margin-left:4px}
+  .stat-label{font-family:var(--font-mono);font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:6px}
+  table{width:100%;border-collapse:collapse}
+  thead th{font-family:var(--font-mono);font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;text-align:left;padding:8px 12px;border-bottom:1px solid var(--border)}
+  tbody tr{border-bottom:1px solid rgba(30,48,80,.5);transition:background .1s}
+  tbody tr:hover{background:var(--surface2)}
+  tbody td{padding:10px 12px;font-family:var(--font-mono);font-size:.75rem;color:var(--text)}
+  #toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 20px;font-family:var(--font-mono);font-size:.72rem;color:var(--white);z-index:9998;transform:translateY(80px);opacity:0;transition:all .3s;pointer-events:none}
+  #toast.show{transform:translateY(0);opacity:1}
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+    GridWatch
+  </a>
+  <div class="nav-links">
+    <a href="/meters"       class="nav-link {% if active=='meters'       %}active{% endif %}">Smart Meters</a>
+    <a href="/transformers" class="nav-link {% if active=='transformers' %}active{% endif %}">Transformers</a>
+    <a href="/map"          class="nav-link {% if active=='map'          %}active{% endif %}">Live Map</a>
+  </div>
+  <div class="nav-spacer"></div>
+  <div class="nav-status">
+    <div class="pulse" id="conn-pulse" style="background:var(--muted);box-shadow:none;animation:none"></div>
+    <span id="conn-label" style="color:var(--muted)">CONNECTING…</span>
+    <span style="margin-left:12px;color:var(--muted)">TICK</span>
+    <span id="nav-tick" style="color:var(--blue)">—</span>
+    <span id="nav-time" style="color:var(--text);margin-left:8px">--:--:--</span>
+  </div>
+</nav>
+<main>{% block content %}{% endblock %}</main>
+<div id="toast"></div>
+<script>
+const evtSource = new EventSource('/api/stream');
+evtSource.onopen = () => {
+  const p = document.getElementById('conn-pulse');
+  p.style.cssText = 'width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite';
+  const l = document.getElementById('conn-label');
+  l.textContent = 'LIVE'; l.style.color = 'var(--green)';
+};
+evtSource.onerror = () => {
+  const p = document.getElementById('conn-pulse');
+  p.style.cssText = 'width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)';
+  document.getElementById('conn-label').style.color = 'var(--red)';
+  document.getElementById('conn-label').textContent = 'RECONNECTING';
+};
+evtSource.onmessage = e => {
+  const d = JSON.parse(e.data);
+  document.getElementById('nav-tick').textContent = d.tick;
+  document.getElementById('nav-time').textContent = d.timestamp;
+  if (window.onDataUpdate) window.onDataUpdate(d);
+};
+function toast(msg, type='info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = type==='danger'?'var(--red)':type==='warning'?'var(--yellow)':'var(--green)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3200);
+}
+async function toggleAnomaly(tfId, btn) {
+  const res = await fetch(`/api/inject_anomaly/${tfId}`, {method:'POST'});
+  const data = await res.json();
+  if (data.anomaly) {
+    btn.textContent = '⚡ THEFT ACTIVE'; btn.className = 'btn btn-danger';
+    toast(`ANOMALY INJECTED: ${tfId}`, 'danger');
+  } else {
+    btn.textContent = '⚡ Inject Anomaly'; btn.className = 'btn btn-warning';
+    toast(`Anomaly cleared: ${tfId}`, 'info');
+  }
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+{% set active = "map" %}
+{% block title %}Live Map{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* ── Layout ─────────────────────────────────────────── */
+body { overflow: hidden; }
+.map-wrap {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  grid-template-rows: 52px 1fr;
+  gap: 0;
+  height: calc(100vh - 56px);   /* 56px = nav */
+}
+
+/* ── Top bar ─────────────────────────────────────────── */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-title {
+  font-family: var(--font-sans); font-weight: 800;
+  font-size: 1rem; color: var(--white); letter-spacing: -0.01em;
+}
+.topbar-sub {
+  font-family: var(--font-mono); font-size: 0.65rem;
+  color: var(--muted); letter-spacing: 0.08em;
+}
+.topbar-spacer { flex: 1; }
+.legend-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px;
+  background: var(--surface2); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 0.63rem; color: var(--text);
+}
+.leg-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* ── Map ─────────────────────────────────────────────── */
+#map {
+  background: #060c18;
+  position: relative;
+}
+/* Dark tile overlay */
+.leaflet-tile {
+  filter: brightness(0.38) saturate(0.5) hue-rotate(195deg) contrast(1.1);
+}
+.leaflet-container { background: #060c18 !important; }
+
+/* ── Popup ───────────────────────────────────────────── */
+.leaflet-popup-content-wrapper {
+  background: #0b1628 !important;
+  border: 1px solid #1e3050 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.7) !important;
+  padding: 0 !important;
+}
+.leaflet-popup-tip-container { display: none; }
+.leaflet-popup-content { margin: 0 !important; }
+.pop-inner { padding: 16px; min-width: 260px; }
+.pop-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; padding-bottom: 10px;
+  border-bottom: 1px solid #1e3050;
+}
+.pop-name { font-family: var(--font-sans); font-weight: 700; font-size: 0.95rem; color: #e8f0ff; }
+.pop-id   { font-family: var(--font-mono); font-size: 0.6rem; color: #4a6080; }
+.pop-badge {
+  padding: 3px 10px; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 0.62rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.pop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.pop-stat {
+  background: #131e33; border-radius: 6px; padding: 8px 10px; text-align: center;
+}
+.pop-val { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; color: #e8f0ff; }
+.pop-lbl { font-family: var(--font-mono); font-size: 0.58rem; color: #4a6080; text-transform: uppercase; margin-top: 2px; }
+.pop-diff-bar {
+  width: 100%; height: 6px; background: #131e33; border-radius: 3px;
+  margin: 10px 0 6px; overflow: hidden;
+}
+.pop-diff-fill { height: 100%; border-radius: 3px; transition: width .5s; }
+.pop-diff-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.pop-diff-label { font-family: var(--font-mono); font-size: 0.62rem; color: #4a6080; }
+.pop-diff-val { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; }
+.pop-hh-list { margin-top: 10px; border-top: 1px solid #1e3050; padding-top: 10px; }
+.pop-hh-title { font-family: var(--font-mono); font-size: 0.6rem; color: #4a6080; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+.pop-hh-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 1px solid rgba(30,48,80,.4);
+}
+.pop-hh-name { font-family: var(--font-mono); font-size: 0.68rem; color: #c8d8f0; }
+.pop-hh-load { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; }
+.pop-hh-bar { flex: 1; margin: 0 8px; height: 4px; background: #1e3050; border-radius: 2px; overflow: hidden; }
+.pop-hh-barfill { height: 100%; border-radius: 2px; }
+.pop-btn {
+  width: 100%; margin-top: 12px; padding: 8px;
+  border: none; border-radius: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; transition: all .15s;
+}
+.pop-btn-warn { background: rgba(245,197,24,.12); color: #f5c518; border: 1px solid rgba(245,197,24,.3); }
+.pop-btn-warn:hover { background: rgba(245,197,24,.22); }
+.pop-btn-danger { background: rgba(255,59,92,.12); color: #ff3b5c; border: 1px solid rgba(255,59,92,.3); animation: borderPulse 1.2s infinite; }
+@keyframes borderPulse { 0%,100%{border-color:rgba(255,59,92,.3)} 50%{border-color:rgba(255,59,92,.9)} }
+
+/* ── Side Panel ──────────────────────────────────────── */
+.side {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.side-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+}
+.side-tab {
+  flex: 1; padding: 10px 6px; text-align: center; cursor: pointer;
+  font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em; transition: all .15s;
+  border-bottom: 2px solid transparent;
+}
+.side-tab.active { color: var(--green); border-bottom-color: var(--green); }
+.side-content { flex: 1; overflow-y: auto; padding: 14px; }
+
+/* Transformer card in side panel */
+.tf-card {
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 10px; overflow: hidden; cursor: pointer;
+  transition: border-color .2s;
+}
+.tf-card:hover { border-color: #2a4060; }
+.tf-card.sel { border-color: var(--blue); }
+.tf-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface2);
+}
+.tf-card-name { font-family: var(--font-sans); font-weight: 600; font-size: 0.82rem; color: var(--white); }
+.tf-card-id { font-family: var(--font-mono); font-size: 0.58rem; color: var(--muted); }
+.tf-card-body { padding: 10px 12px; }
+.tf-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.tf-metric { text-align: center; }
+.tf-metric-val { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 700; color: var(--white); }
+.tf-metric-lbl { font-family: var(--font-mono); font-size: 0.55rem; color: var(--muted); text-transform: uppercase; }
+.loss-bar-wrap { height: 5px; background: #131e33; border-radius: 3px; overflow: hidden; }
+.loss-bar      { height: 100%; border-radius: 3px; transition: width .6s, background .6s; }
+.loss-pct-row { display: flex; justify-content: space-between; margin-top: 4px; }
+.loss-pct-text { font-family: var(--font-mono); font-size: 0.62rem; }
+.status-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 0.58rem; font-weight: 700; text-transform: uppercase;
+}
+
+/* HH mini items in side panel */
+.hh-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid rgba(30,48,80,.4);
+}
+.hh-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hh-name { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text); flex: 1; }
+.hh-load { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; }
+.hh-trend { font-family: var(--font-mono); font-size: 0.6rem; }
+
+/* Custom Leaflet icon label */
+.lbl-house {
+  background: rgba(7,11,20,.85);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 4px; padding: 2px 5px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px; font-weight: 700;
+  white-space: nowrap; color: #e8f0ff;
+  pointer-events: none;
+}
+.lbl-tf {
+  background: rgba(7,11,20,.92);
+  border-radius: 4px; padding: 3px 7px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px; font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Remove <main> padding, make map fill full remaining height ──────────────
+document.querySelector('main').style.cssText = 'padding:0;max-width:none';
+
+// ── Inject layout ────────────────────────────────────────────────────────────
+document.body.insertAdjacentHTML('beforeend', `
+<div class="map-wrap">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">⚡ GridWatch Live Network Map</div>
+      <div class="topbar-sub">Smart meters · transformer zones · anomaly detection</div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="legend-pill"><div class="leg-dot" style="background:#00e5a0;box-shadow:0 0 6px #00e5a0"></div>Normal &lt;5%</div>
+    <div class="legend-pill"><div class="leg-dot" style="background:#f5c518;box-shadow:0 0 6px #f5c518"></div>Warning 5–15%</div>
+    <div class="legend-pill"><div class="leg-dot" style="background:#ff3b5c;box-shadow:0 0 6px #ff3b5c"></div>Critical &gt;15%</div>
+    <button class="btn btn-danger" style="margin-left:12px;font-size:.65rem;padding:6px 14px"
+      onclick="injectAll()">⚡ Inject All Anomalies</button>
+    <button class="btn btn-primary" style="font-size:.65rem;padding:6px 14px"
+      onclick="clearAll()">✓ Clear All</button>
+  </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Side panel -->
+  <div class="side">
+    <div class="side-tabs">
+      <div class="side-tab active" id="tab-tf"  onclick="switchTab('tf')">Transformers</div>
+      <div class="side-tab"        id="tab-hh"  onclick="switchTab('hh')">Smart Meters</div>
+    </div>
+    <div class="side-content" id="side-content"></div>
+  </div>
+
+</div>`);
+
+// ── Init Leaflet ─────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([28.614, 77.218], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 19
+}).addTo(map);
+
+// ── State ────────────────────────────────────────────────────────────────────
+const tfMarkers   = {};   // tf_id → L.marker
+const tfPolygons  = {};   // tf_id → L.polygon (zone)
+const hhMarkers   = {};   // hh_id → L.marker
+const connLines   = {};   // hh_id → L.polyline
+const tfData      = {};   // tf_id → latest tf object
+const hhData      = {};   // hh_id → latest hh object
+let   currentTab  = 'tf';
+let   initDone    = false;
+
+// ── Colours ──────────────────────────────────────────────────────────────────
+function sc(pct){ return pct<5?'#00e5a0': pct<15?'#f5c518':'#ff3b5c'; }
+function sl(pct){ return pct<5?'NORMAL':  pct<15?'WARNING':'CRITICAL'; }
+function sbg(pct){ return pct<5?'rgba(0,229,160,.12)':pct<15?'rgba(245,197,24,.12)':'rgba(255,59,92,.12)'; }
+function loadColor(kw){ return kw>7?'#ff3b5c':kw>4?'#f5c518':'#00e5a0'; }
+
+// ── Zone polygon per transformer ─────────────────────────────────────────────
+// Build a convex-ish polygon from transformer + its household positions
+function zonePoints(tf, hhs) {
+  const pts = [[tf.lat, tf.lng], ...hhs.map(h=>[h.lat, h.lng])];
+  // expand by a tiny buffer so it's visible even before houses load
+  const lat0 = pts.reduce((s,p)=>s+p[0],0)/pts.length;
+  const lng0 = pts.reduce((s,p)=>s+p[1],0)/pts.length;
+  // sort by angle for convex hull approximation
+  const sorted = pts.slice().sort((a,b)=>{
+    return Math.atan2(a[0]-lat0, a[1]-lng0) - Math.atan2(b[0]-lat0, b[1]-lng0);
+  });
+  // add buffer outward from centroid
+  return sorted.map(p => [
+    p[0] + (p[0]-lat0)*0.35,
+    p[1] + (p[1]-lng0)*0.35
+  ]);
+}
+
+// ── Transformer marker icon ───────────────────────────────────────────────────
+function tfIcon(color) {
+  const s = `
+    <div style="position:relative;width:36px;height:36px">
+      <div style="
+        position:absolute;inset:0;border-radius:50%;
+        background:${color};opacity:0.18;
+        animation:ringPulse 2s infinite;
+      "></div>
+      <div style="
+        position:absolute;inset:5px;border-radius:50%;
+        background:${color};opacity:0.25;
+      "></div>
+      <svg style="position:absolute;inset:0;width:36px;height:36px"
+           viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="12" fill="${color}" fill-opacity=".15"
+                stroke="${color}" stroke-width="1.5"/>
+        <circle cx="18" cy="18" r="6" fill="${color}"/>
+        <polyline points="19,4 7,20 17,20 16,32 29,16 19,16 19,4"
+          fill="none" stroke="white" stroke-width="1.8"
+          stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+    </div>`;
+  return L.divIcon({ html:s, className:'', iconSize:[36,36], iconAnchor:[18,18] });
+}
+
+// ── Household marker icon ─────────────────────────────────────────────────────
+function hhIcon(load, color) {
+  const s = `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <div class="lbl-house" style="border-color:${color};color:${color}">
+        ${load.toFixed(1)} kWh
+      </div>
+      <svg width="14" height="14" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <rect x="3" y="10" width="18" height="12" rx="1"
+          fill="${color}" fill-opacity=".15" stroke="${color}" stroke-width="1.5"/>
+        <polyline points="2,10 12,2 22,10"
+          fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
+        <rect x="9" y="15" width="6" height="7" fill="${color}" fill-opacity=".4"/>
+      </svg>
+      <div style="width:2px;height:6px;background:${color};opacity:.5;border-radius:1px"></div>
+    </div>`;
+  return L.divIcon({ html:s, className:'', iconSize:[54,42], iconAnchor:[27,42] });
+}
+
+// ── Build popup HTML for a transformer ───────────────────────────────────────
+function buildTfPopup(tf) {
+  const c    = sc(tf.diff_pct);
+  const hhs  = Object.values(hhData).filter(h=>h.transformer_id===tf.id);
+  const maxL = Math.max(...hhs.map(h=>h.current_load), 1);
+
+  const hhRows = hhs.map(h=>{
+    const lc  = loadColor(h.current_load);
+    const pct = Math.min(100, (h.current_load/maxL)*100);
+    return `<div class="pop-hh-row">
+      <span class="pop-hh-name">${h.name}</span>
+      <div class="pop-hh-bar"><div class="pop-hh-barfill" style="width:${pct}%;background:${lc}"></div></div>
+      <span class="pop-hh-load" style="color:${lc}">${h.current_load} kWh</span>
+    </div>`;
+  }).join('');
+
+  const barW = Math.min(100, tf.diff_pct * 4);
+  return `<div class="pop-inner">
+    <div class="pop-head">
+      <div>
+        <div class="pop-name">${tf.name}</div>
+        <div class="pop-id">${tf.id}</div>
+      </div>
+      <div class="pop-badge" style="background:${sbg(tf.diff_pct)};color:${c}">${sl(tf.diff_pct)}</div>
+    </div>
+    <div class="pop-grid">
+      <div class="pop-stat">
+        <div class="pop-val">${tf.tf_reading}</div>
+        <div class="pop-lbl">TF Read kWh</div>
+      </div>
+      <div class="pop-stat">
+        <div class="pop-val" style="color:#3b8bff">${tf.hh_sum}</div>
+        <div class="pop-lbl">HH Sum kWh</div>
+      </div>
+      <div class="pop-stat">
+        <div class="pop-val">${tf.load_pct}%</div>
+        <div class="pop-lbl">Load %</div>
+      </div>
+      <div class="pop-stat">
+        <div class="pop-val">${tf.household_count}</div>
+        <div class="pop-lbl">Houses</div>
+      </div>
+    </div>
+    <div class="pop-diff-row">
+      <span class="pop-diff-label">Loss / Anomaly</span>
+      <span class="pop-diff-val" style="color:${c}">${tf.diff_pct}%</span>
+    </div>
+    <div class="pop-diff-bar">
+      <div class="pop-diff-fill" style="width:${barW}%;background:${c}"></div>
+    </div>
+    <div class="pop-hh-list">
+      <div class="pop-hh-title">Connected Smart Meters (${hhs.length})</div>
+      ${hhRows}
+    </div>
+    <button class="pop-btn ${tf.anomaly_injected?'pop-btn-danger':'pop-btn-warn'}"
+      id="popup-btn-${tf.id}"
+      onclick="toggleAnomaly('${tf.id}', this)">
+      ${tf.anomaly_injected ? '⚡ THEFT ACTIVE — Click to Clear' : '⚡ Inject Electricity Theft'}
+    </button>
+  </div>`;
+}
+
+// ── Draw / update all layers ──────────────────────────────────────────────────
+function initLayers(transformers, households) {
+  // Store all HH data
+  households.forEach(h => { hhData[h.id] = h; });
+
+  transformers.forEach(tf => {
+    tfData[tf.id] = tf;
+    const hhs  = households.filter(h=>h.transformer_id===tf.id);
+    const c    = sc(tf.diff_pct);
+
+    // 1. Zone polygon
+    const zonePts = zonePoints(tf, hhs);
+    const poly = L.polygon(zonePts, {
+      color: c, weight: 1.5, opacity: 0.7,
+      fillColor: c, fillOpacity: 0.06,
+      dashArray: '6,4'
+    }).addTo(map);
+    tfPolygons[tf.id] = poly;
+
+    // 2. Connection lines (tf → each house)
+    hhs.forEach(hh => {
+      const lc = loadColor(hh.current_load);
+      const line = L.polyline([[tf.lat, tf.lng],[hh.lat, hh.lng]], {
+        color: lc, weight: 1.5, opacity: 0.55, dashArray: '4,5'
+      }).addTo(map);
+      connLines[hh.id] = line;
+
+      // 3. Household marker
+      const hIcon = hhIcon(hh.current_load, lc);
+      const hm = L.marker([hh.lat, hh.lng], { icon: hIcon, zIndexOffset: 100 })
+        .addTo(map)
+        .bindTooltip(`<b>${hh.name}</b><br>${hh.current_load} kWh`, {
+          direction:'top', offset:[0,-36],
+          className:'',
+          permanent: false
+        });
+      hhMarkers[hh.id] = hm;
+    });
+
+    // 4. Transformer marker (on top)
+    const tfM = L.marker([tf.lat, tf.lng], { icon: tfIcon(c), zIndexOffset: 1000 })
+      .addTo(map)
+      .bindPopup(buildTfPopup(tf), { maxWidth: 320, minWidth: 280 });
+    tfMarkers[tf.id] = tfM;
+  });
+}
+
+function updateLayers(transformers, households) {
+  households.forEach(h => { hhData[h.id] = h; });
+
+  transformers.forEach(tf => {
+    tfData[tf.id] = tf;
+    const hhs = households.filter(h=>h.transformer_id===tf.id);
+    const c   = sc(tf.diff_pct);
+
+    // Update zone color
+    if (tfPolygons[tf.id]) {
+      tfPolygons[tf.id].setStyle({
+        color: c, fillColor: c,
+        fillOpacity: tf.status==='critical' ? 0.12 : 0.06
+      });
+    }
+
+    // Update tf marker icon
+    if (tfMarkers[tf.id]) {
+      tfMarkers[tf.id].setIcon(tfIcon(c));
+      if (tfMarkers[tf.id].isPopupOpen()) {
+        tfMarkers[tf.id].setPopupContent(buildTfPopup(tf));
+      }
+    }
+
+    // Update house markers + lines
+    hhs.forEach(hh => {
+      const lc = loadColor(hh.current_load);
+      if (hhMarkers[hh.id]) {
+        hhMarkers[hh.id].setIcon(hhIcon(hh.current_load, lc));
+      }
+      if (connLines[hh.id]) {
+        connLines[hh.id].setStyle({ color: lc });
+      }
+    });
+  });
+}
+
+// ── Side panel rendering ──────────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-tf').classList.toggle('active', tab==='tf');
+  document.getElementById('tab-hh').classList.toggle('active', tab==='hh');
+  renderSidePanel();
+}
+
+function renderSidePanel() {
+  const el  = document.getElementById('side-content');
+  const tfs = Object.values(tfData);
+  const hhs = Object.values(hhData);
+  if (!tfs.length) return;
+
+  if (currentTab === 'tf') {
+    el.innerHTML = tfs.map(tf => {
+      const c    = sc(tf.diff_pct);
+      const barW = Math.min(100, tf.diff_pct * 4);
+      return `<div class="tf-card" id="scard-${tf.id}" onclick="focusTf('${tf.id}')">
+        <div class="tf-card-head">
+          <div>
+            <div class="tf-card-name">${tf.name}</div>
+            <div class="tf-card-id">${tf.id} · ${tf.household_count} households</div>
+          </div>
+          <span class="status-badge" style="background:${sbg(tf.diff_pct)};color:${c}">${sl(tf.diff_pct)}</span>
+        </div>
+        <div class="tf-card-body">
+          <div class="tf-metrics">
+            <div class="tf-metric">
+              <div class="tf-metric-val">${tf.tf_reading}</div>
+              <div class="tf-metric-lbl">TF kWh</div>
+            </div>
+            <div class="tf-metric">
+              <div class="tf-metric-val" style="color:#3b8bff">${tf.hh_sum}</div>
+              <div class="tf-metric-lbl">HH kWh</div>
+            </div>
+            <div class="tf-metric">
+              <div class="tf-metric-val">${tf.load_pct}%</div>
+              <div class="tf-metric-lbl">Load</div>
+            </div>
+          </div>
+          <div class="loss-bar-wrap">
+            <div class="loss-bar" style="width:${barW}%;background:${c}"></div>
+          </div>
+          <div class="loss-pct-row">
+            <span class="loss-pct-text" style="color:var(--muted)">Loss / Theft</span>
+            <span class="loss-pct-text" style="color:${c};font-weight:700">${tf.diff_pct}%</span>
+          </div>
+          <button class="btn ${tf.anomaly_injected?'btn-danger':'btn-warning'}"
+            style="width:100%;font-size:.62rem;padding:5px;margin-top:6px"
+            onclick="event.stopPropagation();toggleAnomaly('${tf.id}',this)">
+            ${tf.anomaly_injected ? '⚡ THEFT ACTIVE' : '⚡ Inject Anomaly'}
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+
+  } else {
+    // Sort by load descending
+    const sorted = hhs.slice().sort((a,b)=>b.current_load-a.current_load);
+    const maxL   = sorted[0]?.current_load || 1;
+    el.innerHTML = `<div style="font-family:var(--font-mono);font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">
+      ${hhs.length} meters · sorted by load
+    </div>` + sorted.map(hh => {
+      const lc  = loadColor(hh.current_load);
+      const pct = Math.min(100, (hh.current_load/maxL)*100);
+      const tf  = tfData[hh.transformer_id];
+      const tc  = tf ? sc(tf.diff_pct) : '#4a6080';
+      return `<div class="hh-item" onclick="focusHh('${hh.id}')" style="cursor:pointer">
+        <div class="hh-dot" style="background:${lc};box-shadow:0 0 4px ${lc}"></div>
+        <span class="hh-name">${hh.name}</span>
+        <div class="pop-hh-bar" style="width:60px"><div class="pop-hh-barfill" style="width:${pct}%;background:${lc}"></div></div>
+        <span class="hh-load" style="color:${lc}">${hh.current_load}</span>
+        <span style="font-family:var(--font-mono);font-size:.55rem;color:${tc};margin-left:4px">kWh</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+// ── Focus helpers ─────────────────────────────────────────────────────────────
+function focusTf(tfId) {
+  if (tfMarkers[tfId]) {
+    map.setView(tfMarkers[tfId].getLatLng(), 15, { animate: true, duration: 0.5 });
+    tfMarkers[tfId].openPopup();
+  }
+}
+function focusHh(hhId) {
+  const hh = hhData[hhId];
+  if (!hh) return;
+  map.setView([hh.lat, hh.lng], 16, { animate: true, duration: 0.5 });
+  if (hhMarkers[hhId]) hhMarkers[hhId].openTooltip();
+}
+
+// ── Inject / clear all ────────────────────────────────────────────────────────
+async function injectAll() {
+  for (const tf of Object.values(tfData)) {
+    if (!tf.anomaly_injected)
+      await fetch(`/api/inject_anomaly/${tf.id}`, { method:'POST' });
+  }
+  toast('All anomalies injected!', 'danger');
+}
+async function clearAll() {
+  for (const tf of Object.values(tfData)) {
+    if (tf.anomaly_injected)
+      await fetch(`/api/inject_anomaly/${tf.id}`, { method:'POST' });
+  }
+  toast('All anomalies cleared', 'info');
+}
+
+// ── Add pulsing ring CSS keyframe ─────────────────────────────────────────────
+const styleEl = document.createElement('style');
+styleEl.textContent = `
+@keyframes ringPulse {
+  0%   { transform:scale(1);   opacity:.18; }
+  50%  { transform:scale(1.6); opacity:0;   }
+  100% { transform:scale(1);   opacity:.18; }
+}`;
+document.head.appendChild(styleEl);
+
+// ── SSE data handler ─────────────────────────────────────────────────────────
+window.onDataUpdate = function(data) {
+  if (!initDone && data.households.length) {
+    initLayers(data.transformers, data.households);
+    initDone = true;
+  } else if (initDone) {
+    updateLayers(data.transformers, data.households);
+  }
+  renderSidePanel();
+};
+</script>
+{% endblock %}
